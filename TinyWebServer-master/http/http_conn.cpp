@@ -554,7 +554,8 @@ void http_conn::unmap()//取消映射
 bool http_conn::write()
 {
     int temp = 0;
-
+     //若要发送的数据长度为0
+      //表示响应报文为空，一般不会出现这种情况
     if (bytes_to_send == 0)
     {
         modfd(m_epollfd, m_sockfd, EPOLLIN, m_TRIGMode);
@@ -564,41 +565,45 @@ bool http_conn::write()
 
     while (1)
     {
+        //将响应报文的状态行、消息头、空行和响应正文发送给浏览器端
         temp = writev(m_sockfd, m_iv, m_iv_count);
-
+         //正常发送，temp为发送的字节数
         if (temp < 0)
         {
+            //判断缓冲区是否满了
             if (errno == EAGAIN)
             {
                 modfd(m_epollfd, m_sockfd, EPOLLOUT, m_TRIGMode);
                 return true;
             }
-            unmap();
+            unmap();//如果发送失败，但不是缓冲区问题，取消映射
             return false;
         }
 
-        bytes_have_send += temp;
-        bytes_to_send -= temp;
+        bytes_have_send += temp;//更新已发送字节
+        bytes_to_send -= temp;//更新已发送字节数
+        //第一个iovec头部信息的数据已发送完，发送第二个iovec数据
         if (bytes_have_send >= m_iv[0].iov_len)
         {
             m_iv[0].iov_len = 0;
             m_iv[1].iov_base = m_file_address + (bytes_have_send - m_write_idx);
             m_iv[1].iov_len = bytes_to_send;
         }
-        else
+        else//继续发送第一个iovec头部信息的数据
         {
+             
             m_iv[0].iov_base = m_write_buf + bytes_have_send;
             m_iv[0].iov_len = m_iv[0].iov_len - bytes_have_send;
         }
 
-        if (bytes_to_send <= 0)
+        if (bytes_to_send <= 0) //判断条件，数据已全部发送完
         {
             unmap();
-            modfd(m_epollfd, m_sockfd, EPOLLIN, m_TRIGMode);
+            modfd(m_epollfd, m_sockfd, EPOLLIN, m_TRIGMode);//在epoll树上重置EPOLLONESHOT事件
 
-            if (m_linger)
+            if (m_linger)//浏览器的请求为长连接
             {
-                init();
+                init(); //重新初始化HTTP对象
                 return true;
             }
             else

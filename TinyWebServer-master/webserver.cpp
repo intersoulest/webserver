@@ -142,16 +142,16 @@ void WebServer::eventListen()
     utils.addfd(m_epollfd, m_listenfd, false, m_LISTENTrigmode);
     http_conn::m_epollfd = m_epollfd;
 
-    ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_pipefd);
+    ret = socketpair(PF_UNIX, SOCK_STREAM, 0, m_pipefd);//创建管道套接字
     assert(ret != -1);
-    utils.setnonblocking(m_pipefd[1]);
-    utils.addfd(m_epollfd, m_pipefd[0], false, 0);
+    utils.setnonblocking(m_pipefd[1]);//设置管道写端为非阻塞，为什么写端要非阻塞？
+    utils.addfd(m_epollfd, m_pipefd[0], false, 0); //设置管道读端为ET非阻塞
 
-    utils.addsig(SIGPIPE, SIG_IGN);
-    utils.addsig(SIGALRM, utils.sig_handler, false);
-    utils.addsig(SIGTERM, utils.sig_handler, false);
+    utils.addsig(SIGPIPE, SIG_IGN);//忽视信号
+    utils.addsig(SIGALRM, utils.sig_handler, false);//定时信号
+    utils.addsig(SIGTERM, utils.sig_handler, false);//触发信号
 
-    alarm(TIMESLOT);
+    alarm(TIMESLOT);//每隔TIMESLOT时间触发SIGALRM信号
 
     //工具类,信号和描述符基础操作
     Utils::u_pipefd = m_pipefd;
@@ -166,13 +166,13 @@ void WebServer::timer(int connfd, struct sockaddr_in client_address)
     //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
     users_timer[connfd].address = client_address;
     users_timer[connfd].sockfd = connfd;
-    util_timer *timer = new util_timer;
-    timer->user_data = &users_timer[connfd];
-    timer->cb_func = cb_func;
+    util_timer *timer = new util_timer;//创建定时器临时变量
+    timer->user_data = &users_timer[connfd];//设置定时器对应的连接资源
+    timer->cb_func = cb_func;//设置回调函数
     time_t cur = time(NULL);
-    timer->expire = cur + 3 * TIMESLOT;
-    users_timer[connfd].timer = timer;
-    utils.m_timer_lst.add_timer(timer);
+    timer->expire = cur + 3 * TIMESLOT;//设置绝对超时时间
+    users_timer[connfd].timer = timer;//创建该连接对应的定时器，初始化为前述临时变量
+    utils.m_timer_lst.add_timer(timer);//将该定时器添加到链表中
 }
 
 //若有数据传输，则将定时器往后延迟3个单位
@@ -218,7 +218,7 @@ bool WebServer::dealclinetdata()
         timer(connfd, client_address);
     }
 
-    else
+    else//另一个m_LISTENTrigmode模式
     {
         while (1)
         {
@@ -243,6 +243,7 @@ bool WebServer::dealclinetdata()
 
 bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
 {
+    //从管道读端读出信号值，成功返回字节数，失败返回-1
     int ret = 0;
     int sig;
     char signals[1024];
@@ -257,7 +258,7 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
     }
     else
     {
-        for (int i = 0; i < ret; ++i)
+        for (int i = 0; i < ret; ++i) //处理信号值对应的逻辑
         {
             switch (signals[i])
             {
@@ -279,9 +280,11 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server)
 
 void WebServer::dealwithread(int sockfd)
 {
-    util_timer *timer = users_timer[sockfd].timer;
+    util_timer *timer = users_timer[sockfd].timer; //创建定时器临时变量，将该连接对应的定时器取出来
 
     //reactor
+    //若有数据传输，则将定时器往后延迟3个单位
+    //对其在链表上的位置进行调整
     if (1 == m_actormodel)
     {
         if (timer)
@@ -294,7 +297,7 @@ void WebServer::dealwithread(int sockfd)
 
         while (true)
         {
-            if (1 == users[sockfd].improv)
+            if (1 == users[sockfd].improv)//improv和timer_flag都为1表示失败
             {
                 if (1 == users[sockfd].timer_flag)
                 {
@@ -376,10 +379,10 @@ void WebServer::dealwithwrite(int sockfd)
 
 void WebServer::eventLoop()
 {
-    bool timeout = false;
+    bool timeout = false;//超时默认为False
     bool stop_server = false;
 
-    while (!stop_server)
+    while (!stop_server)//监测发生事件的文件描述符
     {
         int number = epoll_wait(m_epollfd, events, MAX_EVENT_NUMBER, -1);
         if (number < 0 && errno != EINTR)
@@ -388,7 +391,7 @@ void WebServer::eventLoop()
             break;
         }
 
-        for (int i = 0; i < number; i++)
+        for (int i = 0; i < number; i++)//轮询文件描述符
         {
             int sockfd = events[i].data.fd;
 
@@ -422,6 +425,8 @@ void WebServer::eventLoop()
                 dealwithwrite(sockfd);
             }
         }
+        //alarm定时触发SIGALRM信号
+        //完成读写事件后，再进行处理
         if (timeout)
         {
             utils.timer_handler();
