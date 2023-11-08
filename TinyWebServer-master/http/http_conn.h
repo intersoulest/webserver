@@ -86,8 +86,8 @@ public:
         return &m_address;
     }
     void initmysql_result(connection_pool *connPool); //同步线程初始化数据库读取表
-    int timer_flag;
-    int improv;
+    int timer_flag;//标识子线程读写任务是否成功，如果http连接的读写任务失败（请求处理出错）timer_flag会被置1
+    int improv;//其作用是保持主线程和子线程的同步
 
 
 private:
